@@ -6,62 +6,102 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-YOUTUBE_API_KEY "AIzaSyCBJUOYddr6ttJ3A5maxH0q_8K3Wm65GXs"
+# حط الـ API Key ديالك هنا بين " "
+YOUTUBE_API_KEY = "AIzaSyCBJUOYddr6ttJ3A5maxH0q_8K3Wm65GXs"
 
-@app.route('/api/analyze', methods=['POST', 'OPTIONS'])
+@app.route('/api/analyze', methods=['POST'])
 def analyze_channel():
-    if request.method == 'OPTIONS':
-        return '', 200
-
-    data = request.json
-    channel_name = data.get('channel', '').replace('@', '')
-
     try:
-        # 1. جيب ID ديال القناة
-        search_url = f"https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q={channel_name}&key={YOUTUBE_API_KEY}"
-        search_res = requests.get(search_url).json()
+        data = request.get_json()
+        channel_input = data.get('channel', '').strip()
 
-        if not search_res.get('items'):
+        if not channel_input:
+            return jsonify({'error': 'Channel name is required'}), 400
+
+        if not YOUTUBE_API_KEY or YOUTUBE_API_KEY == "حط-الـKEY-ديالك-هنا":
+            return jsonify({'error': 'YouTube API Key not configured'}), 500
+
+        # Clean channel name
+        if channel_input.startswith('@'):
+            channel_input = channel_input[1:]
+
+        # 1. Get channel ID from username
+        search_url = f"https://www.googleapis.com/youtube/v3/search"
+        search_params = {
+            'part': 'snippet',
+            'q': channel_input,
+            'type': 'channel',
+            'key': YOUTUBE_API_KEY,
+            'maxResults': 1
+        }
+
+        search_response = requests.get(search_url, params=search_params)
+        search_data = search_response.json()
+
+        if 'error' in search_data:
+            return jsonify({'error': search_data['error']['message']}), 400
+
+        if not search_data.get('items'):
             return jsonify({'error': 'Channel not found'}), 404
 
-        channel_id = search_res['items'][0]['id']['channelId']
+        channel_id = search_data['items'][0]['snippet']['channelId']
 
-        # 2. جيب معلومات القناة
-        channel_url = f"https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&id={channel_id}&key={YOUTUBE_API_KEY}"
-        channel_res = requests.get(channel_url).json()
-        channel_data = channel_res['items'][0]
+        # 2. Get channel stats
+        channel_url = f"https://www.googleapis.com/youtube/v3/channels"
+        channel_params = {
+            'part': 'snippet,statistics',
+            'id': channel_id,
+            'key': YOUTUBE_API_KEY
+        }
 
-        # 3. جيب آخر 5 فيديوهات
-        videos_url = f"https://www.googleapis.com/youtube/v3/search?part=snippet&channelId={channel_id}&maxResults=5&order=date&type=video&key={YOUTUBE_API_KEY}"
-        videos_res = requests.get(videos_url).json()
+        channel_response = requests.get(channel_url, params=channel_params)
+        channel_data = channel_response.json()
+
+        if not channel_data.get('items'):
+            return jsonify({'error': 'Channel details not found'}), 404
+
+        channel_info = channel_data['items'][0]
+        stats = channel_info['statistics']
+        snippet = channel_info['snippet']
+
+        # 3. Get latest videos
+        videos_url = f"https://www.googleapis.com/youtube/v3/search"
+        videos_params = {
+            'part': 'snippet',
+            'channelId': channel_id,
+            'type': 'video',
+            'order': 'date',
+            'key': YOUTUBE_API_KEY,
+            'maxResults': 5
+        }
+
+        videos_response = requests.get(videos_url, params=videos_params)
+        videos_data = videos_response.json()
 
         videos = []
-        for item in videos_res.get('items', []):
-            video_id = item['id']['videoId']
-            stats_url = f"https://www.googleapis.com/youtube/v3/videos?part=statistics&id={video_id}&key={YOUTUBE_API_KEY}"
-            stats_res = requests.get(stats_url).json()
+        for item in videos_data.get('items', []):
+            videos.append({
+                'title': item['snippet']['title'],
+                'thumbnail': item['snippet']['thumbnails']['medium']['url'],
+                'videoId': item['id']['videoId'],
+                'publishedAt': item['snippet']['publishedAt']
+            })
 
-            if stats_res.get('items'):
-                stats = stats_res['items'][0]['statistics']
-                videos.append({
-                    'title': item['snippet']['title'],
-                    'thumbnail': item['snippet']['thumbnails']['medium']['url'],
-                    'views': stats.get('viewCount', 0),
-                    'videoId': video_id
-                })
+        result = {
+            'channelName': snippet['title'],
+            'channelId': channel_id,
+            'subscribers': stats.get('subscriberCount', '0'),
+            'totalViews': stats.get('viewCount', '0'),
+            'videoCount': stats.get('videoCount', '0'),
+            'description': snippet['description'],
+            'thumbnail': snippet['thumbnails']['high']['url'],
+            'latestVideos': videos
+        }
 
-        return jsonify({
-            'channel': {
-                'name': channel_data['snippet']['title'],
-                'thumbnail': channel_data['snippet']['thumbnails']['default']['url'],
-                'subscribers': channel_data['statistics'].get('subscriberCount', 0),
-                'totalViews': channel_data['statistics'].get('viewCount', 0)
-            },
-            'videos': videos
-        })
+        return jsonify(result)
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    app.run()
+    app.run(debug=True)
