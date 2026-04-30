@@ -1,59 +1,33 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import requests
-import re
 
 app = Flask(__name__)
-CORS(app)
+CORS(app)  # هادي كتحل مشكل Failed to fetch مع v0
 
-YOUTUBE_API_KEY = "AIzaSyA8kW0IA6Qg9JXjQ2Pj4V3Xz5"
+@app.route('/api/analyze', methods=['POST', 'OPTIONS'])
+def analyze():
+    # ضروري للـ CORS
+    if request.method == 'OPTIONS':
+        return '', 200
 
-@app.route('/')
-def home():
-    return jsonify({
-        "status": "success",
-        "message": "ViralBoost API is running",
-        "endpoints": {
-            "analyze": "/analyze [POST]"
-        }
-    })
-
-@app.route('/analyze', methods=['POST'])
-def analyze_channel():
     try:
+        # كناخدو اسم القناة من v0
         data = request.get_json()
-        channel_url = data.get('url', '')
+        channel = data.get('channel')
+        
+        if not channel:
+            return jsonify({"error": "Channel name is required"}), 400
 
-        if 'youtube.com' not in channel_url:
-            return jsonify({"error": "رابط غير صحيح"}), 400
+        # مثال للتجريب - غادي نبدلوه من بعد بالحقيقي
+        result = {
+            "title": channel.replace("@", ""),
+            "subscribers": 320000000,
+            "views": 50000000000,
+            "videoCount": 800,
+            "thumbnail": "https://yt3.ggpht.com/ytc/AIdro_lh0bO9u-j-k-lM="
+        }
 
-        channel_id = ""
-        if '/channel/' in channel_url:
-            channel_id = channel_url.split('/channel/')[1].split('/')[0]
-        else:
-            return jsonify({"error": "حط رابط القناة الكامل لي فيه /channel/"}), 400
-
-        url = f"https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet&id={channel_id}&key={YOUTUBE_API_KEY}"
-        response = requests.get(url)
-        result = response.json()
-
-        if 'items' not in result or len(result['items']) == 0:
-            return jsonify({"error": "القناة غير موجودة"}), 404
-
-        channel_data = result['items'][0]
-        stats = channel_data['statistics']
-        snippet = channel_data['snippet']
-
-        return jsonify({
-            "title": snippet['title'],
-            "subscribers": stats.get('subscriberCount', '0'),
-            "views": stats.get('viewCount', '0'),
-            "videos": stats.get('videoCount', '0'),
-            "thumbnail": snippet['thumbnails']['high']['url']
-        })
+        return jsonify(result), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-if __name__ == "__main__":
-    app.run()
