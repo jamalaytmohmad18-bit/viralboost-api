@@ -6,7 +6,7 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-YOUTUBE_API_KEY = "AIzaSyCBJUOYddr6ttJ3A5maxH0q_8K3Wm65GXs"
+YOUTUBE_API_KEY "AIzaSyCBJUOYddr6ttJ3A5maxH0q_8K3Wm65GXs"
 
 @app.route('/api/analyze', methods=['POST', 'OPTIONS'])
 def analyze_channel():
