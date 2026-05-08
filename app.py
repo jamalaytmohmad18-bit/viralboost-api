@@ -2,7 +2,7 @@
         avatar = avatar_match.group(1) if avatar_match else ""
         
         name_match = re.search(r'"channelMetadataRenderer":{"title":"(.*?)"', text)
-        name = name_match.group(1) if name_match else f"@{channel}"
+        name = (1) if name_match else f"@{channel}"
         
         return jsonify({
             "status": "success",
