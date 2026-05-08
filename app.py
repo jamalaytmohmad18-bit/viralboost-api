@@ -1,4 +1,5 @@
 import os
+import re
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
@@ -7,6 +8,7 @@ import logging
 app = Flask(__name__)
 CORS(app)
 
+# باش يبانو الأخطاء فـ Logs ديال Render
 gunicorn_logger = logging.getLogger('gunicorn.error')
 app.logger.handlers = gunicorn_logger.handlers
 app.logger.setLevel(gunicorn_logger.level)
@@ -35,7 +37,11 @@ def generate():
         }
 
         payload = {
-            "messages": [{"role": "user", "content": f"أنت خبير في المحتوى الفيروسي. المجال: {niche}. عطيني 3 أفكار فيديو بصيغة JSON: {{\"ideas\": [{{\"hook\": \"...\", \"idea\": \"...\", \"cta\": \"...\"}}]}}"}],
+            "messages": [{"role": "user", "content": f"""أنت خبير في المحتوى الفيروسي على TikTok و Instagram Reels.
+المجال ديالي هو: {niche}
+عطيني 3 أفكار فيديو قصيرة فيروسية.
+رجع الجواب بصيغة JSON فقط، بلا أي شرح ولا ```json:
+{{"ideas": [{{"hook": "...", "idea": "...", "cta": "..."}}]}}"""}],
             "model": "llama-3.1-8b-instant",
             "temperature": 0.9,
             "max_tokens": 1024
@@ -50,7 +56,13 @@ def generate():
 
         groq_data = response.json()
         content = groq_data['choices'][0]['message']['content']
-        return content, 200, {'Content-Type': 'application/json'}
+
+        # نحيدو ```json و ``` من الجواب يلا كانو
+        content = re.sub(r'^```json\s*', '', content)
+        content = re.sub(r'\s*```$', '', content)
+
+        app.logger.info("Success: Returning clean JSON")
+        return content.strip(), 200, {'Content-Type': 'application/json'}
 
     except Exception as e:
         app.logger.error(f"Exception: {str(e)}")
