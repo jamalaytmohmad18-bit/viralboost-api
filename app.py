@@ -2,9 +2,14 @@ import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
+import logging
 
 app = Flask(__name__)
 CORS(app)
+
+gunicorn_logger = logging.getLogger('gunicorn.error')
+app.logger.handlers = gunicorn_logger.handlers
+app.logger.setLevel(gunicorn_logger.level)
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
@@ -16,10 +21,13 @@ def home():
 @app.route('/api/generate', methods=['POST'])
 def generate():
     try:
+        if not GROQ_API_KEY:
+            app.logger.error("GROQ_API_KEY is missing!")
+            return jsonify({"error": "مفتاح Groq API غير موجود في السيرفر"}), 500
+
         data = request.get_json()
         niche = data.get('niche', 'عام')
-        if not niche:
-            return jsonify({"error": "المرجو إدخال مجال niche"}), 400
+        app.logger.info(f"Received niche: {niche}")
 
         headers = {
             "Authorization": f"Bearer {GROQ_API_KEY}",
@@ -27,28 +35,26 @@ def generate():
         }
 
         payload = {
-            "messages": [{"role": "user", "content": f"""أنت خبير في المحتوى الفيروسي على TikTok و Instagram Reels.
-المجال ديالي هو: {niche}
-عطيني 3 أفكار فيديو قصيرة فيروسية دات جودة عالية ومناسبة للمجال.
-كل فكرة خاصها تكون فيها:
-1. عنوان Hook قوي كيشد فأول 3 ثواني
-2. وصف سريع للفكرة ديال الفيديو
-3. CTA واضح فاللخر
-رجع الجواب بصيغة JSON فقط بهاد الشكل:
-{{"ideas": [{{"hook": "العنوان هنا","idea": "وصف الفكرة هنا","cta": "الدعوة لاتخاذ إجراء هنا"}}]}}
-لا تزيد أي كلام خارج JSON."""}],
-            "model": "llama3-8b-8192",
+            "messages": [{"role": "user", "content": f"أنت خبير في المحتوى الفيروسي. المجال: {niche}. عطيني 3 أفكار فيديو بصيغة JSON: {{\"ideas\": [{{\"hook\": \"...\", \"idea\": \"...\", \"cta\": \"...\"}}]}}"}],
+            "model": "llama-3.1-8b-instant",
             "temperature": 0.9,
-            "max_tokens": 1024,
-            "response_format": {"type": "json_object"}
+            "max_tokens": 1024
         }
 
         response = requests.post(GROQ_URL, headers=headers, json=payload)
-        response.raise_for_status()
-        return response.json(), 200
+        app.logger.info(f"Groq response status: {response.status_code}")
+
+        if response.status_code!= 200:
+            app.logger.error(f"Groq API failed: {response.status_code} - {response.text}")
+            return jsonify({"error": f"Groq API Error: {response.text}"}), 500
+
+        groq_data = response.json()
+        content = groq_data['choices'][0]['message']['content']
+        return content, 200, {'Content-Type': 'application/json'}
 
     except Exception as e:
-        return jsonify({"error": f"فشل تطبيق Groq API: {str(e)}"}), 500
+        app.logger.error(f"Exception: {str(e)}")
+        return jsonify({"error": f"فشل تطبيق: {str(e)}"}), 500
 
 if __name__ == '__main__':
     app.run()
